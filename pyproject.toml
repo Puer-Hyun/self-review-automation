@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "self-review-automation"
+version = "0.1.0"
+description = ""
+authors = ["박성현 <58927933+Puer-Hyun@users.noreply.github.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+selenium = "^4.21.0"
+pandas = "^2.2.2"
+gradio = "^4.31.4"
+seleniumbase = "^4.27.0"
+
+
+[tool.poetry.group.dev.dependencies]
+pre-commit = "^3.7.1"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
