@@ -5,10 +5,6 @@
 ## 시작하기
 이 프로젝트를 로컬 컴퓨터에 설치하고 실행하는 방법을 아래에서 설명합니다.
 
-### 필수 요구사항
-- Python 3.6 이상
-- Poetry (패키지 및 환경 관리)
-
 ### 레포지토리 클론
 ```bash
 git clone https://github.com/Puer-Hyun/self-review-automation.git
