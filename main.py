@@ -5,44 +5,52 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 import argparse
 import re  # 정규 표현식 모듈 추가
-from typing import List, Tuple
 import pandas as pd
-import gradio as gr
-import time
+import json
 
 
-def get_user_opinion(html_content, student_info):
-    opinion_value = None  # 사용자의 의견을 저장할 변수
+# 학생 정보와 의견을 저장할 JSON 파일 이름
+DATA_FILE = "student_data.json"
 
-    def process_opinion(opinion):
-        nonlocal opinion_value
-        opinion_value = opinion  # nonlocal 변수에 사용자의 의견을 저장
-        print(f"Opinion received: {opinion}")
-        time.sleep(2)  # 2초 대기
-        gr.close_all()  # Gradio 인터페이스 닫기
-        return opinion, "Thank you for your input!"  # 사용자 의견과 감사 메시지 반환
 
-    with gr.Blocks() as demo:
-        with gr.Row():
-            with gr.Column(scale=2):
-                gr.HTML(value=html_content)  # HTML 컨텐츠 출력
-            with gr.Column():
-                opinion = gr.Textbox(
-                    label=f"Enter opinion for {student_info}",
-                    placeholder="Type your opinion here...",
-                    lines=4,
-                )
-                output_opinion = gr.Label()  # 사용자 의견 출력 레이블
-                output_message = gr.Label()  # 감사 메시지 출력 레이블
-                submit_button = gr.Button("Submit")
-                submit_button.click(
-                    process_opinion,
-                    inputs=[opinion],
-                    outputs=[output_opinion, output_message],
-                )
-        demo.launch()  # Gradio 인터페이스 실행
+def get_user_opinion(html_content, student_info, self_review_number):
+    """
+    FastAPI 서버에 HTML과 학생 정보를 전달하고 Gradio이 의견을 제출할 때까지 대기합니다.
+    """
+    review_folder = f"self_review_{self_review_number}"
+    os.makedirs(review_folder, exist_ok=True)
 
-    return opinion_value  # 사용자가 입력한 의견 반환
+    data_file = os.path.join(review_folder, "student_data.json")
+
+    print(f"Sending HTML content: {html_content}")
+    print(f"Sending student info: {student_info}")
+
+    # JSON 데이터를 저장합니다.
+    data = {"modal_html": html_content, "student_info": student_info}
+    with open(data_file, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+    print("Data saved successfully in:", data_file)
+
+    # Gradio에서 의견을 제출할 때까지 대기합니다.
+    while True:
+        print(f"Waiting for user opinion for {student_info}...")
+        opinion = check_opinion(student_info, self_review_number)
+        if opinion:
+            print(f"Received opinion: {opinion}")
+            return opinion
+
+
+def check_opinion(student_info, self_review_number):
+    """
+    해당 학생의 의견을 JSON 파일에서 가져옵니다.
+    """
+    review_folder = f"self_review_{self_review_number}"
+    file_path = os.path.join(review_folder, f"{student_info}_opinion.json")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("opinion")
+    return None
 
 
 def google_login(driver) -> None:
@@ -128,7 +136,9 @@ def find_last_page_number(driver):
     return current_page - 1
 
 
-def check_and_write_opinion(driver, row_index, student_info: str):
+def check_and_write_opinion(
+    driver, row_index, student_info: str, self_review_number: int
+):
     # 해당 학생 정보에 대한 버튼 클릭하여 모달 창 띄우기
     selector = f"#taskSubmit > table > tbody > tr:nth-child({row_index + 1}) > td:nth-child(4) > button"
     opinion_button = driver.find_element(By.CSS_SELECTOR, selector)
@@ -154,53 +164,80 @@ def check_and_write_opinion(driver, row_index, student_info: str):
     close_modal_button.click()
     time.sleep(1)
 
-    # 사용자 의견 입력을 위한 Gradio 인터페이스 실행
-    opinion = get_user_opinion(modal_html, student_info)
+    # FastAPI 서버를 통해 Gradio 인터페이스 실행
+    opinion = get_user_opinion(modal_html, student_info, self_review_number)
 
     return opinion
 
 
-def extract_students_data(driver, start, end, last_page_number, processed_names):
+def extract_students_data(
+    driver, start, end, last_page_number, processed_names, self_review_number
+):
     result = []
+
     for page in range(1, last_page_number + 1):
         rows = driver.find_elements(By.CSS_SELECTOR, "#taskSubmit > table > tbody > tr")
         for index, row in enumerate(rows):
-            student_info = row.find_element(By.CSS_SELECTOR, "td.title > div").text
-            student_number_match = re.search(r"\d+", student_info)
-            if student_number_match:
-                student_number = int(student_number_match.group(0))
-                if start <= student_number <= end:
-                    student_name = student_info.split(" ")[0][
-                        6:
-                    ]  # 성함 추출 방식 확인 필요
-                    if student_name in processed_names:
-                        print(f"Already processed: {student_name}")
-                        continue  # 이미 처리된 학생은 건너뜀
-                    student_details = row.find_element(
-                        By.CSS_SELECTOR, "td:nth-child(2)"
-                    ).text
-                    opinion = check_and_write_opinion(driver, index, student_info)
-                    student_data = {
-                        "student_info": student_info,
-                        "student_details": student_details,
-                        "opinion": opinion,
-                    }
-                    result.append(student_data)
-                    print(
-                        f"Processed Student Info: {student_info}, Details: {student_details}, Opinion: {opinion}"
-                    )
+            try:
+                student_info = row.find_element(By.CSS_SELECTOR, "td.title > div").text
+                student_number_match = re.search(r"\d+", student_info)
+                if student_number_match:
+                    student_number = int(student_number_match.group(0))
+
+                    if start <= student_number <= end:
+                        student_name = student_info.split(" ")[0][6:]
+                        print(f"Extracted student name: {student_name}")
+
+                        if student_name in processed_names:
+                            print(f"Already processed: {student_name}")
+                            continue  # 이미 처리된 학생은 건너뜀
+
+                        student_details = row.find_element(
+                            By.CSS_SELECTOR, "td:nth-child(2)"
+                        ).text
+                        print(f"Found student details: {student_details}")
+
+                        opinion = check_and_write_opinion(
+                            driver, index, student_info, self_review_number
+                        )
+                        print(f"Retrieved opinion: {opinion}")
+
+                        student_data = {
+                            "student_info": student_info,
+                            "student_details": student_details,
+                            "opinion": opinion,
+                        }
+                        result.append(student_data)
+                        print(
+                            f"Processed Student Info: {student_info}, Details: {student_details}, Opinion: {opinion}"
+                        )
+            except Exception as e:
+                print(f"Error processing row {index + 1} on page {page}: {e}")
+
         if page < last_page_number:
-            next_button = driver.find_element(
-                By.CSS_SELECTOR, "#taskSubmit > nav > div > a.next"
-            )
-            next_button.click()
-            time.sleep(1)  # 페이지 로드 기다림
+            try:
+                next_button = driver.find_element(
+                    By.CSS_SELECTOR, "#taskSubmit > nav > div > a.next"
+                )
+                print(f"Clicking next button to go to page {page + 1}")
+                next_button.click()
+                time.sleep(1)  # 페이지 로드 기다림
+            except Exception as e:
+                print(f"Error clicking next button on page {page}: {e}")
+                break
+
+    print("Data extraction complete.")
+    print(f"Extracted data: {result}")
     return result
 
 
 def create_or_update_csv(
     filename, extracted_students_data, start, end, self_review_number
 ):
+    print(f"Creating or updating {filename}.")
+    print(f"Extracted data: {extracted_students_data}")
+    print(f"Start: {start}, End: {end}, Self Review Number: {self_review_number}")
+
     review_column = f"셀프리뷰{self_review_number}"
     date_column = "제출일"
     opinion_column = "의견"
@@ -242,9 +279,7 @@ def create_or_update_csv(
                 row["student_details"],
                 row["opinion"],
             ]
-            print(
-                f"Update for {student_id}: Enter the content for {review_column} and then press Enter."
-            )
+            print(f"Update for {student_id}")
 
     df.to_csv(filename, index=False)
     print(f"Updated {filename} with new data for {review_column} and {opinion_column}.")
@@ -268,7 +303,7 @@ def main():
     parser.add_argument("self_review_number", type=int, help="셀프리뷰 회차")
     args = parser.parse_args()
 
-    filename = f"./self_review_{args.self_review_number}.csv"
+    filename = f"self_review_{args.self_review_number}/self_review_{args.self_review_number}.csv"
     processed_names = load_student_names(filename)
 
     with SB(uc=True) as driver:
@@ -282,8 +317,14 @@ def main():
         last_page_number = find_last_page_number(driver)
         driver.refresh()
         extracted_students_data = extract_students_data(
-            driver, args.start, args.end, last_page_number, processed_names
+            driver,
+            args.start,
+            args.end,
+            last_page_number,
+            processed_names,
+            args.self_review_number,
         )
+
         create_or_update_csv(
             filename,
             extracted_students_data,
