@@ -9,4 +9,4 @@ self_review_number=$4
 python 'gradio/app.py' $self_review_number &
 
 # Selenium 코드 실행
-python main.py $url $start $end $self_review_number
+python self_review.py $url $start $end $self_review_number
