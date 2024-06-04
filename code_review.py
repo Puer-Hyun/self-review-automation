@@ -65,6 +65,16 @@ def move_to_url(driver, url: str) -> None:
     driver.sleep(10)  # Adjust sleep time as necessary
 
 
+def click_review_button(driver) -> None:
+    """
+    Click the review button using the specified XPath.
+    """
+    review_button_xpath = "/html/body/div[3]/div[1]/div[2]/section/ul/li[4]"
+    review_button = driver.find_element(By.XPATH, review_button_xpath)
+    review_button.click()
+    driver.sleep(3)  # Optional: wait for the next page or modal to load
+
+
 def click_coach_name(driver, coach_name: str) -> None:
     """
     Find the coach name and click it.
@@ -74,7 +84,7 @@ def click_coach_name(driver, coach_name: str) -> None:
         By.CSS_SELECTOR,
         "#project_content > div > div > div > div:nth-child(3) > div.reviewer_selbox > div > div",
     ).click()
-    driver.sleep(1)  # Optional: wait for the dropdown to appear
+    driver.sleep(5)  # Optional: wait for the dropdown to appear
 
     # Find and click the coach name in the list
     ul_element = driver.find_element(
@@ -84,7 +94,10 @@ def click_coach_name(driver, coach_name: str) -> None:
     li_elements = ul_element.find_elements(By.TAG_NAME, "li")
 
     for li in li_elements:
+        print(li.text)
         if coach_name in li.text:
+            # Scroll the element into view
+            driver.execute_script("arguments[0].scrollIntoView(true);", li)
             li.click()
             break
 
@@ -161,6 +174,9 @@ def main():
         google_login(driver)
         login_boostclass(driver)
         move_to_url(driver, args.url)
+        print("리뷰 버튼 클릭 중....")
+        click_review_button(driver)
+        print(f"코치 이름 찾는 중.... {args.coach_name}")
         click_coach_name(driver, args.coach_name)
 
         # 이미 완료된 학생을 출력함.
